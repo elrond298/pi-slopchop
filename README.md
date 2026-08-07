@@ -12,8 +12,9 @@ The goal is simple: keep terminal-based review within Pi, keep annotations preci
 
 Use `/slopchop` or `/diff` when you want to review and annotate work before sending the agent another turn.
 
-It supports three review scopes:
+It works in both **git** and **jj (Jujutsu)** repositories. In a git repo it reviews the working tree, last commit, and branch changes. In a jj repo it maps those scopes onto jj's working-copy commit (`@`), its parent (`@-`), and the range from the merge base of the default branch to `@`.
 
+It supports three review scopes:
 - `git diff`
 - `last commit`
 - `all files`
@@ -45,7 +46,7 @@ Then restart Pi or run `/reload`.
 
 ### Run it
 
-Inside a git repo in Pi:
+Inside a git or jj repo in Pi:
 
 ```text
 /slopchop
@@ -65,9 +66,17 @@ alt+s
 
 Configure the shortcut with `globalShortcut` in `~/.pi/agent/extensions/slopchop.json`, then restart Pi or run `/reload`.
 
-### Basic flow
+### Jujutsu (jj) repos
 
-1. Run `/slopchop` or `/diff`
+`/slopchop` also works inside a jj workspace. The three scopes map to jj's commit graph as follows:
+
+- `git diff` — the working-copy commit `@` compared with its parent (`jj diff`)
+- `last commit` — the parent commit `@-` compared with its parent (`jj diff -r @-`)
+- `all files` — the merge base of the default branch (`trunk()` if configured, else `origin/main`, `origin/master`, `main`, or `master` bookmarks) compared with `@` (`jj diff --from <base> --to @`); this includes working-copy changes, which is how jj tracks the current change
+
+jj's working copy is always a commit, so working tree changes appear in the `git diff` scope automatically. Renames, additions, deletions, and per-file `+added -deleted` counts come from jj's own diff machinery. Note that jj does not surface git submodule changes (jj ignores them), so submodule drill-in is a git-only feature for now.
+
+### Basic flow
 2. Pick a scope:
    - `git diff` — review your current uncommitted working tree changes against `HEAD`
    - `last commit` — review the most recent commit against its parent
