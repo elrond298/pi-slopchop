@@ -1,5 +1,10 @@
 # pi-slopchop
 
+> [!IMPORTANT]
+> **⚠️ Local fork — this README is the upstream document with local modifications on top.**
+> This fork adds [Jujutsu](https://jj-vcs.dev) (jj) support as a VCS backend to the upstream [`robzolkos/pi-slopchop`](https://github.com/robzolkos/pi-slopchop).
+> See [LOCAL_CHANGES.md](./LOCAL_CHANGES.md) for the complete list of local changes.
+
 `/slopchop` and `/diff` open a terminal-native review and annotation surface for Pi.
 
 It is inspired by Mario Zechner's [pi-diff-review](https://github.com/badlogic/pi-diff-review).
