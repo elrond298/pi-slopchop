@@ -9,7 +9,7 @@ It lets you stop after an agent turn, walk the diff inside Pi, add fast line/fil
 The goal is simple: keep terminal-based review within Pi, keep annotations precise, and make it easy to separate **things that should change** from **things you want explained or discussed**.
 ## Upstream
 
-This repo is a fork of [robzolkos/pi-slopchop](https://github.com/robzolkos/pi-slopchop) (upstream branch `master`), hosted on Gitea at `git@git.thechance.top:ck/pi-slopchop.git`. Local modifications are tracked in [LOCAL-CHANGES.md](LOCAL-CHANGES.md).
+This repo is a fork of [robzolkos/pi-slopchop](https://github.com/robzolkos/pi-slopchop) (upstream branch `master`), hosted on Gitea at `git@git.thechance.top:ck/pi-slopchop.git`. Local modifications are tracked in [LOCAL_CHANGES.md](LOCAL_CHANGES.md).
 
 ## Summary
 
