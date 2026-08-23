@@ -878,7 +878,7 @@ class ReviewApp {
     this.searchBuffer = this.state.searchQuery;
 
     const editorTheme: EditorTheme = {
-      borderColor: (text) => this.theme.fg("accent", text),
+      borderColor: (text) => this.theme.fg("accent", isPlainTextTheme(this.theme) ? text.replaceAll("─", "-") : text),
       selectList: {
         selectedPrefix: (text) => this.theme.fg("accent", text),
         selectedText: (text) => this.theme.fg("accent", text),
@@ -2412,11 +2412,10 @@ class ReviewApp {
           ? "File comment"
           : `${formatLineSideLabel(this.editTarget.side)} line ${formatLineRangeLabel(this.editTarget.startLine, this.editTarget.endLine)}`));
       lines.push(`${getIntentBadge(this.theme, this.editTarget.intent)} ${this.theme.fg("dim", "Tab toggle")}`);
-      lines.push(this.theme.fg("dim", "Enter save • Shift+Enter newline"));
-      lines.push(this.theme.fg("dim", "Esc cancel"));
-      lines.push("");
       const editorLines = this.editor.render(Math.max(10, width - 4));
       lines.push(...editorLines.map((line) => ` ${line}`));
+      lines.push(this.theme.fg("dim", "Enter save • Shift+Enter newline"));
+      lines.push(this.theme.fg("dim", "Esc cancel"));
       return renderBox("Edit comment", width, height, this.theme, lines, true);
     }
 
