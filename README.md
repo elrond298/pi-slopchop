@@ -20,7 +20,7 @@ This repo is a fork of [robzolkos/pi-slopchop](https://github.com/robzolkos/pi-s
 
 Use `/slopchop` or `/diff` when you want to review and annotate work before sending the agent another turn.
 
-It works in both **git** and **jj (Jujutsu)** repositories. In a git repo it reviews the working tree, last commit, and branch changes. In a jj repo it maps those scopes onto jj's working-copy commit (`@`), its parent (`@-`), and the range from the merge base of the default branch to `@`.
+It works in both **git** and **jj (Jujutsu)** repositories. In a git repo it reviews the working tree, last commit, and branch changes. In a jj repo the same numbered scopes become the working-copy change (`@`), its parent change (`@-`), and the completed change stack from the default branch through `@-`.
 
 It supports three review scopes:
 - `git diff`
@@ -76,16 +76,16 @@ Configure the shortcut with `globalShortcut` in `~/.pi/agent/extensions/slopchop
 
 ### Jujutsu (jj) repos
 
-`/slopchop` also works inside a jj workspace. The three scopes map to jj's commit graph as follows:
+`/slopchop` also works inside a jj workspace. The numbered scopes use jj-native labels and map to the commit graph as follows:
 
-- `git diff` — the working-copy commit `@` compared with its parent (`jj diff`)
-- `last commit` — the parent commit `@-` compared with its parent (`jj diff -r @-`)
-- `all files` — the merge base of the default branch (`trunk()` if configured, else `origin/main`, `origin/master`, `main`, or `master` bookmarks) compared with `@` (`jj diff --from <base> --to @`); this includes working-copy changes, which is how jj tracks the current change
+- `1:working copy (@)` — the current working-copy change compared with its parent (`jj diff`)
+- `2:parent change (@-)` — the parent change compared with its parent (`jj diff -r @-`)
+- `3:change stack` — the merge base of the default branch (`trunk()` if configured, else `main@origin`, `master@origin`, `main`, or `master`) compared with `@-` (`jj diff --from <base> --to @-`)
 
-jj's working copy is always a commit, so working tree changes appear in the `git diff` scope automatically. Renames, additions, deletions, and per-file `+added -deleted` counts come from jj's own diff machinery. Note that jj does not surface git submodule changes (jj ignores them), so submodule drill-in is a git-only feature for now.
+Scope 3 deliberately excludes `@`: scope 1 already reviews that active change, while scope 3 corresponds to Git's committed branch changes. Renames, additions, deletions, and per-file `+added -deleted` counts come from jj's own diff machinery. Note that jj does not surface git submodule changes (jj ignores them), so submodule drill-in is a git-only feature for now.
 
 ### Basic flow
-2. Pick a scope:
+2. Pick a scope (Git labels shown; jj uses the labels above):
    - `git diff` — review your current uncommitted working tree changes against `HEAD`
    - `last commit` — review the most recent commit against its parent
    - `all files` — review files changed on the current branch compared with the default branch; if there are no changed scopes, falls back to current file contents

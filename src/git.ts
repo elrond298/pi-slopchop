@@ -1,13 +1,18 @@
 import { open, readFile, stat } from "node:fs/promises";
 import { extname, join, posix } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ChangeStatus, ReviewFile, ReviewFileComparison, ReviewFileContents, ReviewScope, ReviewSubmoduleByScope, ReviewSubmoduleInfo } from "./types.js";
-
-export type Vcs = "git" | "jj";
+import type { ChangeStatus, ReviewFile, ReviewFileComparison, ReviewFileContents, ReviewScope, ReviewSubmoduleByScope, ReviewSubmoduleInfo, Vcs } from "./types.js";
+export type { Vcs } from "./types.js";
 
 export interface RepoContext {
   vcs: Vcs;
   repoRoot: string;
+}
+
+export interface ReviewWindowData {
+  vcs: Vcs;
+  repoRoot: string;
+  files: ReviewFile[];
 }
 
 export interface ChangedPath {
@@ -671,10 +676,10 @@ async function getBranchBaseRevision(pi: ExtensionAPI, repoRoot: string): Promis
   return result.stdout.trim() || null;
 }
 
-export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promise<{ repoRoot: string; files: ReviewFile[] }> {
+export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promise<ReviewWindowData> {
   const { vcs, repoRoot } = await getRepoContext(pi, cwd);
-  if (vcs === "jj") return getJjReviewWindowData(pi, repoRoot);
-  return getGitReviewWindowData(pi, repoRoot);
+  const data = vcs === "jj" ? await getJjReviewWindowData(pi, repoRoot) : await getGitReviewWindowData(pi, repoRoot);
+  return { vcs, ...data };
 }
 
 async function getGitReviewWindowData(pi: ExtensionAPI, repoRoot: string): Promise<{ repoRoot: string; files: ReviewFile[] }> {
@@ -953,20 +958,20 @@ export function parseJjGitDiffStats(output: string): Map<string, ChangeStats> {
 }
 
 /**
- * Resolve the jj base revision for the "all files" scope: the merge base of
- * the default branch (configured trunk, else origin/main, origin/master, main,
- * master) and the working-copy commit `@`. Returns null when no base exists.
+ * Resolve the jj base revision for the completed "change stack" scope: the
+ * merge base of the default branch (configured trunk, else remote/local main
+ * or master) and the parent of the working-copy commit `@`.
  */
 async function getJjBranchBaseRevision(pi: ExtensionAPI, repoRoot: string): Promise<string | null> {
   const candidates: string[] = [];
-  const trunkConfig = await pi.exec("jj", ["config", "get", "revset-aliases.trunk"], { cwd: repoRoot });
-  if (trunkConfig.code === 0) candidates.push("trunk()");
-  candidates.push("origin/main", "origin/master", "main", "master");
+  const trunkConfig = await pi.exec("jj", ["config", "list", "revset-aliases.\"trunk()\"", "--color", "never"], { cwd: repoRoot });
+  if (trunkConfig.code === 0 && trunkConfig.stdout.trim().length > 0) candidates.push("trunk()");
+  candidates.push("main@origin", "master@origin", "main", "master");
 
   for (const candidate of candidates) {
     const resolveResult = await runJjAllowFailure(pi, repoRoot, ["log", "-r", candidate, "--no-graph", "-T", "commit_id", "--color", "never"]);
     if (resolveResult.trim().length === 0) continue;
-    const baseResult = await runJjAllowFailure(pi, repoRoot, ["log", "-r", `heads(::${candidate} & ::@)`, "--no-graph", "-T", "commit_id", "--color", "never"]);
+    const baseResult = await runJjAllowFailure(pi, repoRoot, ["log", "-r", `heads(::${candidate} & ::@-)`, "--no-graph", "-T", "commit_id", "--color", "never"]);
     const commitId = baseResult.trim().split(/\r?\n/)[0];
     if (commitId != null && commitId.length > 0) return commitId;
   }
@@ -1032,7 +1037,7 @@ async function getJjReviewWindowData(pi: ExtensionAPI, repoRoot: string): Promis
   const branchBaseRevision = await getJjBranchBaseRevision(pi, repoRoot);
   const branchData = branchBaseRevision == null
     ? { changes: [], stats: new Map<string, ChangeStats>(), largePaths: new Set<string>() }
-    : await collectJjScopeData(pi, repoRoot, ["diff", "--from", branchBaseRevision, "--to", "@"]);
+    : await collectJjScopeData(pi, repoRoot, ["diff", "--from", branchBaseRevision, "--to", "@-"]);
 
   const trackedFilesOutput = await runJj(pi, repoRoot, ["file", "list"]);
   const currentPaths = uniquePaths(parseTrackedPaths(trackedFilesOutput)).filter(isReviewableFilePath);
@@ -1043,7 +1048,7 @@ async function getJjReviewWindowData(pi: ExtensionAPI, repoRoot: string): Promis
     if (change.newPath == null) return;
     const key = normalizeGitPath(getChangeKey(change));
     if (branchData.largePaths.has(key)) return;
-    branchContentsByPath.set(normalizeGitPath(change.newPath), await getWorkingTreeContent(repoRoot, change.newPath));
+    branchContentsByPath.set(normalizeGitPath(change.newPath), await getJjRevisionContent(pi, repoRoot, "@-", change.newPath));
   }));
   const branchReferenceGraph = getChangedFileReferenceGraph(branchData.changes, branchContentsByPath);
 
@@ -1062,7 +1067,7 @@ async function getJjReviewWindowData(pi: ExtensionAPI, repoRoot: string): Promis
     const key = getChangeKey(change);
     const seed = upsertSeed(seeds, key, () => createSeed(key, change.newPath != null && currentPathSet.has(change.newPath)));
     seed.inAllFiles = true;
-    seed.allFiles = toComparison(change, branchData.stats.get(normalizeGitPath(key)), { originalRevision: branchBaseRevision ?? undefined, modifiedRevision: "@" }, { isTooLarge: branchData.largePaths.has(normalizeGitPath(key)) });
+    seed.allFiles = toComparison(change, branchData.stats.get(normalizeGitPath(key)), { originalRevision: branchBaseRevision ?? undefined, modifiedRevision: "@-" }, { isTooLarge: branchData.largePaths.has(normalizeGitPath(key)) });
     seed.allFilesReferenceCount = branchReferenceGraph.counts.get(normalizeGitPath(key)) ?? 0;
     seed.allFilesOutgoingReferences = branchReferenceGraph.outgoing.get(normalizeGitPath(key)) ?? [];
     seed.allFilesIncomingReferences = branchReferenceGraph.incoming.get(normalizeGitPath(key)) ?? [];
@@ -1118,10 +1123,12 @@ async function getJjSubmoduleReviewWindowData(pi: ExtensionAPI, repoRoot: string
   return { repoRoot, files: [...seeds.values()].map(createReviewFile).sort(compareReviewFiles) };
 }
 
-export async function getSubmoduleReviewWindowData(pi: ExtensionAPI, repoRoot: string, oldSha: string, newSha: string): Promise<{ repoRoot: string; files: ReviewFile[] }> {
+export async function getSubmoduleReviewWindowData(pi: ExtensionAPI, repoRoot: string, oldSha: string, newSha: string): Promise<ReviewWindowData> {
   const vcs = await detectVcsAt(repoRoot);
-  if (vcs === "jj") return getJjSubmoduleReviewWindowData(pi, repoRoot, oldSha, newSha);
-  return getGitSubmoduleReviewWindowData(pi, repoRoot, oldSha, newSha);
+  const data = vcs === "jj"
+    ? await getJjSubmoduleReviewWindowData(pi, repoRoot, oldSha, newSha)
+    : await getGitSubmoduleReviewWindowData(pi, repoRoot, oldSha, newSha);
+  return { vcs, ...data };
 }
 
 async function getGitSubmoduleReviewWindowData(pi: ExtensionAPI, repoRoot: string, oldSha: string, newSha: string): Promise<{ repoRoot: string; files: ReviewFile[] }> {

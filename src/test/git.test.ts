@@ -318,6 +318,9 @@ describe("git helpers", () => {
     try {
       await mkdir(join(repoRoot, "src"), { recursive: true });
       await mkdir(join(repoRoot, "docs"), { recursive: true });
+      await writeFile(join(repoRoot, "src/committed.ts"), "export const committed = true;\n", "utf8");
+      await runJj(repoRoot, ["commit", "-m", "completed feature"]);
+
       await writeFile(join(repoRoot, "README.md"), "line1\nline2\nline3\n", "utf8");
       await writeFile(join(repoRoot, "src/new.ts"), "export const newValue = 1;\n", "utf8");
       await writeFile(join(repoRoot, "docs/notes.txt"), "note\n", "utf8");
@@ -325,16 +328,18 @@ describe("git helpers", () => {
       await rm(join(repoRoot, "src/app.ts"), { force: true });
 
       const data = await getReviewWindowData(createExecPi() as never, repoRoot);
+      expect(data.vcs).toBe("jj");
       const byPath = new Map(data.files.map((file) => [file.path, file]));
 
       const readme = byPath.get("README.md")!;
       expect(readme.inGitDiff).toBe(true);
-      expect(readme.inAllFiles).toBe(true);
+      expect(readme.inAllFiles).toBe(false);
       expect(readme.gitDiff).toMatchObject({ status: "modified", additions: 1, deletions: 0 });
-      expect(readme.allFiles).toMatchObject({ status: "modified", additions: 1, deletions: 0, modifiedRevision: "@" });
+      expect(readme.allFiles).toBeNull();
 
       const newFile = byPath.get("src/new.ts")!;
       expect(newFile.gitDiff).toMatchObject({ status: "added", additions: 1, deletions: 0 });
+      expect(newFile.inAllFiles).toBe(false);
 
       const renamed = byPath.get("docs/notes.txt")!;
       expect(renamed.gitDiff).toMatchObject({
@@ -348,9 +353,12 @@ describe("git helpers", () => {
       const deleted = byPath.get("src/app.ts")!;
       expect(deleted.gitDiff).toMatchObject({ status: "deleted", additions: 0, deletions: 1 });
 
-      const lastCommit = byPath.get("notes.txt")!;
-      expect(lastCommit.inLastCommit).toBe(true);
-      expect(lastCommit.lastCommit).toMatchObject({ status: "added", additions: 1, deletions: 0 });
+      const completed = byPath.get("src/committed.ts")!;
+      expect(completed.inGitDiff).toBe(false);
+      expect(completed.inLastCommit).toBe(true);
+      expect(completed.inAllFiles).toBe(true);
+      expect(completed.lastCommit).toMatchObject({ status: "added", additions: 1, deletions: 0 });
+      expect(completed.allFiles).toMatchObject({ status: "added", additions: 1, deletions: 0, modifiedRevision: "@-" });
 
       const readmeDiff = await loadReviewFileContents(createExecPi() as never, repoRoot, readme, "git-diff");
       expect(readmeDiff).toEqual({ originalContent: "line1\nline2\n", modifiedContent: "line1\nline2\nline3\n" });
@@ -358,14 +366,49 @@ describe("git helpers", () => {
       const renamedDiff = await loadReviewFileContents(createExecPi() as never, repoRoot, renamed, "git-diff");
       expect(renamedDiff).toEqual({ originalContent: "note\n", modifiedContent: "note\n" });
 
-      const lastCommitDiff = await loadReviewFileContents(createExecPi() as never, repoRoot, lastCommit, "last-commit");
-      expect(lastCommitDiff.modifiedContent).toBe("note\n");
-      expect(lastCommitDiff.originalContent).toBe("");
+      const lastCommitDiff = await loadReviewFileContents(createExecPi() as never, repoRoot, completed, "last-commit");
+      expect(lastCommitDiff).toEqual({ originalContent: "", modifiedContent: "export const committed = true;\n" });
 
-      const allFilesDiff = await loadReviewFileContents(createExecPi() as never, repoRoot, newFile, "all-files");
-      expect(allFilesDiff).toEqual({ originalContent: "", modifiedContent: "export const newValue = 1;\n" });
+      const allFilesDiff = await loadReviewFileContents(createExecPi() as never, repoRoot, completed, "all-files");
+      expect(allFilesDiff).toEqual({ originalContent: "", modifiedContent: "export const committed = true;\n" });
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!hasJj)("resolves a remote-only jj default bookmark for the completed stack", async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), "pi-slopchop-jj-remote-"));
+    const remote = join(sandbox, "remote.git");
+    const seed = join(sandbox, "seed");
+    const repoRoot = join(sandbox, "repo");
+    try {
+      await execFileAsync("git", ["init", "--bare", remote]);
+      await execFileAsync("git", ["init", seed]);
+      await runGit(seed, ["config", "user.email", "test@example.com"]);
+      await runGit(seed, ["config", "user.name", "Test User"]);
+      await writeFile(join(seed, "README.md"), "initial\n", "utf8");
+      await runGit(seed, ["add", "README.md"]);
+      await runGit(seed, ["commit", "-m", "initial"]);
+      await runGit(seed, ["branch", "-M", "main"]);
+      await runGit(seed, ["push", remote, "main"]);
+      await runGit(remote, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+      await execFileAsync("jj", ["git", "clone", "--no-colocate", remote, repoRoot]);
+      await runJj(repoRoot, ["bookmark", "delete", "main"]);
+      await runJj(repoRoot, ["config", "unset", "--repo", "revset-aliases.\"trunk()\""]);
+
+      await writeFile(join(repoRoot, "completed.ts"), "export const completed = true;\n", "utf8");
+      await runJj(repoRoot, ["commit", "-m", "completed feature"]);
+      await writeFile(join(repoRoot, "wip.ts"), "export const wip = true;\n", "utf8");
+
+      const data = await getReviewWindowData(createExecPi() as never, repoRoot);
+      const completed = data.files.find((file) => file.path === "completed.ts")!;
+      const wip = data.files.find((file) => file.path === "wip.ts")!;
+      expect(completed.inAllFiles).toBe(true);
+      expect(completed.allFiles?.modifiedRevision).toBe("@-");
+      expect(wip.inGitDiff).toBe(true);
+      expect(wip.inAllFiles).toBe(false);
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
     }
   });
 
