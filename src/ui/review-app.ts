@@ -408,20 +408,23 @@ export function applySelectedBackground(theme: Theme, text: string): string {
   return styled === text ? `${HEADLESS_SELECTED_ANSI}${text}\x1b[0m` : styled;
 }
 
-function renderBox(title: string, width: number, height: number, theme: Theme, lines: string[], focused = false): string[] {
+export function renderBox(title: string, width: number, height: number, theme: Theme, lines: string[], focused = false): string[] {
   const innerWidth = Math.max(1, width - 2);
   const innerHeight = Math.max(1, height - 2);
   const titleText = truncateToWidth(` ${formatPaneTitle(title, focused)} `, Math.max(1, innerWidth - 2), "", false);
   const leftPad = Math.max(0, Math.floor((innerWidth - visibleWidth(titleText)) / 2));
   const rightPad = Math.max(0, innerWidth - visibleWidth(titleText) - leftPad);
   const borderColor = focused ? "accent" : "border";
-  const top = theme.fg(borderColor, `┌${repeat("─", leftPad)}${titleText}${repeat("─", rightPad)}┐`);
-  const bottom = theme.fg(borderColor, `└${repeat("─", innerWidth)}┘`);
+  const ascii = isPlainTextTheme(theme);
+  const horizontal = ascii ? "-" : "─";
+  const vertical = ascii ? "|" : "│";
+  const top = theme.fg(borderColor, `${ascii ? "+" : "┌"}${repeat(horizontal, leftPad)}${titleText}${repeat(horizontal, rightPad)}${ascii ? "+" : "┐"}`);
+  const bottom = theme.fg(borderColor, `${ascii ? "+" : "└"}${repeat(horizontal, innerWidth)}${ascii ? "+" : "┘"}`);
   const body: string[] = [];
 
   for (let i = 0; i < innerHeight; i += 1) {
     const line = padLine(lines[i] ?? "", innerWidth);
-    body.push(`${theme.fg(borderColor, "│")}${line}${theme.fg(borderColor, "│")}`);
+    body.push(`${theme.fg(borderColor, vertical)}${line}${theme.fg(borderColor, vertical)}`);
   }
 
   return [top, ...body, bottom];

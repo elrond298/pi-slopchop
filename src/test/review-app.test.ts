@@ -2,7 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { buildStructuredDiff } from "../diff.js";
 import type { DiffReviewComment, ReviewFile, ReviewState } from "../types.js";
-import { applySelectedBackground, buildCommentPanelEmptyStateLines, buildCommentPanelTextLines, buildDisplayRows, buildEditorLaunchCommand, buildFooterLines, buildHelpPanelLines, buildSideBySideDisplayRows, formatFocusStatus, formatPaneTitle, formatSelectedLineTargetLabel, getCancelAction, getDraftCommentCount, getEditorLineForTarget, getHalfPageStep, getPaneLayout, getRelatedFileMarker, getRelatedFilePaths, getSideBySidePairedLineTarget, getStackedPaneLayout, isPlainTextTheme, parseMouseWheelInput, renderCenteredOverlay, renderOuterFrame, shouldStackPanes } from "../ui/review-app.js";
+import { applySelectedBackground, buildCommentPanelEmptyStateLines, buildCommentPanelTextLines, buildDisplayRows, buildEditorLaunchCommand, buildFooterLines, buildHelpPanelLines, buildSideBySideDisplayRows, formatFocusStatus, formatPaneTitle, formatSelectedLineTargetLabel, getCancelAction, getDraftCommentCount, getEditorLineForTarget, getHalfPageStep, getPaneLayout, getRelatedFileMarker, getRelatedFilePaths, getSideBySidePairedLineTarget, getStackedPaneLayout, isPlainTextTheme, parseMouseWheelInput, renderBox, renderCenteredOverlay, renderOuterFrame, shouldStackPanes } from "../ui/review-app.js";
 
 function makeFile(path: string, flags?: Partial<ReviewFile>): ReviewFile {
   return {
@@ -248,6 +248,14 @@ describe("plain-text web host rendering", () => {
 
     expect(selected).toContain("\x1b[38;5;255;48;5;240m");
     expect(visibleWidth(selected)).toBe(10);
+  });
+
+  it("uses fixed-width ASCII borders in the web host", () => {
+    expect(renderBox("Navigator", 16, 3, plainTheme as any, ["file.ts"])).toEqual([
+      "+- Navigator --+",
+      "|file.ts       |",
+      "+--------------+",
+    ]);
   });
 
   it("can emit a titleless wrapper for the web host to normalize away", () => {
