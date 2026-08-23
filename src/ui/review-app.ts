@@ -397,6 +397,17 @@ export function formatFocusStatus(focus: ReviewState["focus"]): string {
   }
 }
 
+const HEADLESS_SELECTED_ANSI = "\x1b[38;5;255;48;5;240m";
+
+export function isPlainTextTheme(theme: Theme): boolean {
+  return theme.fg("accent", "x") === "x" && theme.bg("selectedBg", "x") === "x";
+}
+
+export function applySelectedBackground(theme: Theme, text: string): string {
+  const styled = theme.bg("selectedBg", text);
+  return styled === text ? `${HEADLESS_SELECTED_ANSI}${text}\x1b[0m` : styled;
+}
+
 function renderBox(title: string, width: number, height: number, theme: Theme, lines: string[], focused = false): string[] {
   const innerWidth = Math.max(1, width - 2);
   const innerHeight = Math.max(1, height - 2);
@@ -419,7 +430,7 @@ function renderBox(title: string, width: number, height: number, theme: Theme, l
 const MODAL_INNER_PADDING_X = 2;
 const MODAL_INNER_PADDING_Y = 1;
 
-function renderOuterFrame(
+export function renderOuterFrame(
   width: number,
   height: number,
   theme: Theme,
@@ -436,7 +447,9 @@ function renderOuterFrame(
   const titleText = truncateToWidth(` ${title} `, Math.max(1, innerWidth - 2), "", false);
   const leftPad = 1;
   const rightPad = Math.max(0, innerWidth - visibleWidth(titleText) - leftPad);
-  const top = theme.fg(color, `┌${repeat("─", leftPad)}${titleText}${repeat("─", rightPad)}┐`);
+  const top = theme.fg(color, title.length === 0
+    ? `┌${repeat("─", innerWidth)}┐`
+    : `┌${repeat("─", leftPad)}${titleText}${repeat("─", rightPad)}┐`);
   const bottom = theme.fg(color, `└${repeat("─", innerWidth)}┘`);
   const body: string[] = [];
   const sidePadding = " ".repeat(paddingX);
@@ -969,7 +982,7 @@ class ReviewApp {
     const wrapped = wrapAnsiText(contentText, Math.max(1, width - 2), wrapLines);
     const rendered = wrapped.map((line) => {
       const paddedLine = padLine(line, Math.max(1, width - 2));
-      if (isSelected) return this.theme.bg("selectedBg", paddedLine);
+      if (isSelected) return applySelectedBackground(this.theme, paddedLine);
       if (rowKind === "added" || rowKind === "removed") return applyLineBackground(this.theme, paddedLine, tone);
       return paddedLine;
     });
@@ -2118,7 +2131,8 @@ class ReviewApp {
       const pathText = active || (!relatedFilterActive && related)
         ? this.theme.fg("accent", shortenedPath)
         : this.theme.fg("text", shortenedPath);
-      lines.push(`${prefixText}${pathText}${submoduleMarker}${changeMarker}${commentMarker}`);
+      const row = `${prefixText}${pathText}${submoduleMarker}${changeMarker}${commentMarker}`;
+      lines.push(active ? applySelectedBackground(this.theme, padLine(row, width - 2)) : row);
     }
 
     return renderBox("Navigator", width, height, this.theme, lines, this.state.focus === "navigator");
@@ -2145,7 +2159,7 @@ class ReviewApp {
 
     return wrapAnsiText(contentText, Math.max(1, width), this.state.wrapLines).map((line) => {
       const paddedLine = padLine(line, Math.max(1, width));
-      if (selected) return this.theme.bg("selectedBg", paddedLine);
+      if (selected) return applySelectedBackground(this.theme, paddedLine);
       if (cell.tone === "added" || cell.tone === "removed") return applyLineBackground(this.theme, paddedLine, cell.tone);
       return paddedLine;
     });
@@ -2455,8 +2469,11 @@ class ReviewApp {
     const terminalRows = this.tui?.terminal?.rows ?? 28;
     const totalHeight = Math.max(20, terminalRows - 4);
     const frameColor = "accent" as const;
-    const frameInnerWidth = Math.max(20, this.lastWidth - 2 - MODAL_INNER_PADDING_X * 2);
-    const frameInnerHeight = Math.max(10, totalHeight - 2 - MODAL_INNER_PADDING_Y * 2);
+    const plainTextHost = isPlainTextTheme(this.theme);
+    const framePaddingX = plainTextHost ? 0 : MODAL_INNER_PADDING_X;
+    const framePaddingY = plainTextHost ? 0 : MODAL_INNER_PADDING_Y;
+    const frameInnerWidth = Math.max(20, this.lastWidth - 2 - framePaddingX * 2);
+    const frameInnerHeight = Math.max(10, totalHeight - 2 - framePaddingY * 2);
 
     const stackPanes = shouldStackPanes(frameInnerWidth);
     const headerLineCount = this.frameStack.length > 0 ? 2 : 1;
@@ -2464,8 +2481,8 @@ class ReviewApp {
     const terminalCols = this.tui?.terminal?.columns ?? this.lastWidth;
     const overlayOriginCol = Math.max(0, Math.floor((terminalCols - this.lastWidth) / 2));
     const overlayOriginRow = Math.max(0, Math.floor((terminalRows - totalHeight) / 2));
-    const bodyTop = overlayOriginRow + 1 + MODAL_INNER_PADDING_Y + headerLineCount;
-    const contentLeft = overlayOriginCol + 1 + MODAL_INNER_PADDING_X;
+    const bodyTop = overlayOriginRow + 1 + framePaddingY + headerLineCount;
+    const contentLeft = overlayOriginCol + 1 + framePaddingX;
 
     const layoutStatus = stackPanes ? "stacked layout • " : "";
     const promptStatus = this.shortcutMode
@@ -2482,7 +2499,7 @@ class ReviewApp {
       const active = this.state.activeScope === scope;
       const count = getScopedFiles(this.files, scope).length;
       const text = `${index + 1}:${formatScopeLabel(scope)}(${count})`;
-      return active ? this.theme.bg("selectedBg", this.theme.fg("text", ` ${text} `)) : this.theme.fg("muted", ` ${text} `);
+      return active ? applySelectedBackground(this.theme, this.theme.fg("text", ` ${text} `)) : this.theme.fg("muted", ` ${text} `);
     }).join(" ");
 
     const breadcrumbLabels = [...this.frameStack.map((frame) => formatFrameLabel(frame.repoRoot)), formatFrameLabel(this.repoRoot)];
@@ -2534,7 +2551,16 @@ class ReviewApp {
 
     const footer = buildFooterLines(this.theme, promptStatus, frameInnerWidth);
 
-    const rendered = renderOuterFrame(this.lastWidth, totalHeight, this.theme, "slopchop", [...headerLines, ...body, ...footer], frameColor);
+    const rendered = renderOuterFrame(
+      this.lastWidth,
+      totalHeight,
+      this.theme,
+      plainTextHost ? "" : "slopchop",
+      [...headerLines, ...body, ...footer],
+      frameColor,
+      framePaddingX,
+      framePaddingY,
+    );
     if (!this.confirmCancel) return rendered;
     return renderCenteredOverlay(rendered, this.renderCancelConfirmation(), this.lastWidth, totalHeight);
   }
